@@ -1,3 +1,5 @@
+import sys
+import os
 from PyQt5.QtWidgets import (
     QWidget, QLabel, QPushButton,
     QVBoxLayout, QHBoxLayout, QGridLayout,
@@ -8,6 +10,13 @@ from PyQt5.QtGui import QPixmap
 from categorias.bebidas import BebidasDialog
 from ticket import TicketWidget
 from registros_semanales import RegistrosSemanalesDialog
+
+
+def resource_path(relative_path):
+    """Obtiene la ruta correcta para recursos empaquetados"""
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.abspath("."), relative_path)
 
 
 class ImageFrame(QFrame):
@@ -39,34 +48,54 @@ class POSWindow(QWidget):
         self.showMaximized()
 
         # ======================================================
-        # >>> NUEVO: BARRA SUPERIOR - REGISTROS SEMANALES
+        # BARRA SUPERIOR
         # ======================================================
         top_bar = QHBoxLayout()
-        top_bar.setSpacing(20)
+        top_bar.setSpacing(15)
 
-        self.btn_registros = QPushButton("📊 Registros Semanales")
+        # Botón de configurar impresora
+        self.btn_printer = QPushButton("Impresora")
+        self.btn_printer.setFixedHeight(45)
+        self.btn_printer.setStyleSheet("""
+            QPushButton {
+                background-color: #ff9800;
+                color: white;
+                font-size: 14px;
+                font-weight: bold;
+                border-radius: 10px;
+                padding: 8px 18px;
+            }
+            QPushButton:hover {
+                background-color: #e68900;
+            }
+        """)
+        self.btn_printer.clicked.connect(self.open_printer_config)
+
+        # Botón registros semanales
+        self.btn_registros = QPushButton("Registros Semanales")
         self.btn_registros.setFixedHeight(45)
         self.btn_registros.setStyleSheet("""
             QPushButton {
                 background-color: #2e7d32;
                 color: white;
-                font-size: 16px;
+                font-size: 14px;
                 font-weight: bold;
                 border-radius: 10px;
-                padding: 8px 22px;
+                padding: 8px 18px;
             }
             QPushButton:hover {
                 background-color: #1b5e20;
             }
         """)
 
+        top_bar.addWidget(self.btn_printer)
         top_bar.addStretch()
         top_bar.addWidget(self.btn_registros)
 
         # =========================
         # PANEL IZQUIERDO
         # =========================
-        products_frame = ImageFrame("comidas.jpg")
+        products_frame = ImageFrame(resource_path("comidas.jpg"))
         products_frame.setStyleSheet("""
             QFrame {
                 border: 2px solid black;
@@ -175,7 +204,7 @@ class POSWindow(QWidget):
         # LAYOUT GENERAL
         # =========================
         left_layout = QVBoxLayout()
-        left_layout.addLayout(top_bar)            # >>> NUEVO
+        left_layout.addLayout(top_bar)
         left_layout.addWidget(products_frame)
         left_layout.addLayout(bottom_layout)
 
@@ -204,12 +233,31 @@ class POSWindow(QWidget):
         self.btn_pay.clicked.connect(self.open_payment)
         self.btn_admin.clicked.connect(self.open_corte)
         self.btn_registros.clicked.connect(self.open_registros)
+        self.btn_cancel.clicked.connect(self.cancel_ticket)
 
     # =========================
     # MÉTODOS DE TICKET
     # =========================
     def add_product(self, data):
         self.ticket.add_item(data)
+
+    # =========================
+    # CANCELAR TICKET
+    # =========================
+    def cancel_ticket(self):
+        if not self.ticket.items_data:
+            QMessageBox.information(self, "Info", "El ticket ya está vacío")
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Cancelar Ticket",
+            "¿Estás seguro de cancelar todo el ticket?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            self.ticket.clear()
 
     # =========================
     # EDITAR DESDE TICKET
@@ -233,6 +281,10 @@ class POSWindow(QWidget):
             from categorias.tacosmaiz import TacosDialog
             TacosDialog(self, edit_data=data, edit_row=row).exec_()
 
+        elif categoria == "Tacos de Harina":
+            from categorias.Tacosharina import TacosharinaDialog
+            TacosharinaDialog(self, edit_data=data, edit_row=row).exec_()
+
         elif categoria == "Bebidas":
             from categorias.bebidas import BebidasDialog
             BebidasDialog(self, edit_data=data, edit_row=row).exec_()
@@ -241,7 +293,7 @@ class POSWindow(QWidget):
             from categorias.quesadillas import QuesadillasDialog
             QuesadillasDialog(self, edit_data=data, edit_row=row).exec_()
 
-        elif categoria == "Big Quesadillas":
+        elif categoria == "Big Quesadilla":
             from categorias.Bigquesadilla import BigQuesadillasDialog
             BigQuesadillasDialog(self, edit_data=data, edit_row=row).exec_()
 
@@ -297,6 +349,30 @@ class POSWindow(QWidget):
         })
 
     # =========================
+    # CONFIGURAR IMPRESORA
+    # =========================
+    def open_printer_config(self):
+        """Abre configuración de impresora - NO falla si no hay dependencias"""
+        try:
+            from config_impresora import PrinterConfigDialog
+            PrinterConfigDialog(self).exec_()
+        except ImportError:
+            QMessageBox.information(
+                self,
+                "Impresora",
+                "Para usar la impresora, instala:\n\n"
+                "pip install python-escpos pyserial\n\n"
+                "Y para Windows:\n"
+                "pip install pywin32"
+            )
+        except Exception as e:
+            QMessageBox.warning(
+                self,
+                "Error",
+                f"Error al abrir configuración:\n{e}"
+            )
+
+    # =========================
     # PAGO / CORTE / REGISTROS
     # =========================
     def open_payment(self):
@@ -311,14 +387,6 @@ class POSWindow(QWidget):
         from corte import CorteDialog
         CorteDialog(self, self.ticket).exec_()
 
-    def open_registros_semanales(self):
-        QMessageBox.information(
-            self,
-            "Registros Semanales",
-            "Aquí se mostrarán los registros de ventas semanales.\n(Próximo paso)"
-        )
     def open_registros(self):
         from registros_semanales import RegistrosSemanalesDialog
         RegistrosSemanalesDialog(self).exec_()
-
-    

@@ -1,11 +1,19 @@
 # main.py
 import sys
+import os
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QLabel, QLineEdit,
     QPushButton, QVBoxLayout, QMessageBox
 )
 from PyQt5.QtGui import QPixmap, QFont
 from PyQt5.QtCore import Qt
+
+
+def resource_path(relative_path):
+    """Obtiene la ruta correcta para recursos empaquetados"""
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.abspath("."), relative_path)
 
 
 class LoginWindow(QWidget):
@@ -20,7 +28,7 @@ class LoginWindow(QWidget):
         self.background = QLabel(self)
         self.background.setGeometry(0, 0, 700, 500)
 
-        pixmap = QPixmap("background.jpg")
+        pixmap = QPixmap(resource_path("background.jpg"))
         if not pixmap.isNull():
             self.background.setPixmap(
                 pixmap.scaled(700, 500, Qt.IgnoreAspectRatio)
@@ -97,7 +105,7 @@ class LoginWindow(QWidget):
         pw = self.pass_input.text().strip()
 
         if user == "admin" and pw == "1234":
-            from pos import POSWindow 
+            from pos import POSWindow
 
             self.pos = POSWindow()
             self.pos.show()
