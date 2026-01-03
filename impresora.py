@@ -15,6 +15,7 @@ class PrinterManager:
     def __init__(self):
         self.printer = None
         self.printer_type = None
+        self.printer_name = None
         self.config = self.load_config()
 
     def load_config(self):
@@ -179,11 +180,11 @@ class PrinterManager:
             return False
 
     def connect_windows(self, printer_name):
-        """Conecta a una impresora de Windows"""
+        """Conecta a una impresora de Windows usando método directo"""
         try:
-            from escpos.printer import Win32Raw
-            self.printer = Win32Raw(printer_name)
+            self.printer_name = printer_name
             self.printer_type = "windows"
+            self.printer = "windows_raw"
             return True
         except:
             return False
@@ -219,64 +220,196 @@ class PrinterManager:
         """Verifica si hay una impresora conectada"""
         return self.printer is not None
 
+    def _print_windows_raw(self, text):
+        """Imprime texto raw directamente a impresora Windows"""
+        try:
+            import win32print
+            
+            # Método 1: Intentar con RAW
+            try:
+                hprinter = win32print.OpenPrinter(self.printer_name)
+                try:
+                    win32print.StartDocPrinter(hprinter, 1, ("Ticket", None, "RAW"))
+                    try:
+                        win32print.StartPagePrinter(hprinter)
+                        win32print.WritePrinter(hprinter, text.encode('cp437', errors='replace'))
+                        win32print.EndPagePrinter(hprinter)
+                    finally:
+                        win32print.EndDocPrinter(hprinter)
+                finally:
+                    win32print.ClosePrinter(hprinter)
+                return True
+            except Exception as e1:
+                # Método 2: Intentar con TEXT
+                try:
+                    hprinter = win32print.OpenPrinter(self.printer_name)
+                    try:
+                        win32print.StartDocPrinter(hprinter, 1, ("Ticket", None, "TEXT"))
+                        try:
+                            win32print.StartPagePrinter(hprinter)
+                            win32print.WritePrinter(hprinter, text.encode('utf-8', errors='replace'))
+                            win32print.EndPagePrinter(hprinter)
+                        finally:
+                            win32print.EndDocPrinter(hprinter)
+                    finally:
+                        win32print.ClosePrinter(hprinter)
+                    return True
+                except Exception as e2:
+                    raise Exception(f"RAW: {e1}, TEXT: {e2}")
+                
+        except Exception as e:
+            print(f"Error imprimiendo: {e}")
+            raise e
+
+    def _generate_ticket_text(self, items, total, ticket_num=None):
+        """Genera el texto del ticket"""
+        now = datetime.now()
+        
+        lines = []
+        lines.append("=" * 32)
+        lines.append("         MICHEL")
+        lines.append("    Gorditas y Antojitos")
+        lines.append("=" * 32)
+        lines.append(f"Fecha: {now.strftime('%d/%m/%Y')}")
+        lines.append(f"Hora:  {now.strftime('%H:%M:%S')}")
+        
+        if ticket_num:
+            lines.append(f"Ticket: #{ticket_num}")
+        
+        lines.append("-" * 32)
+        
+        for item in items:
+            qty = item.get("qty", 1)
+            categoria = item.get("categoria", "")
+            tipo = item.get("tipo", "")
+            subtotal = item.get("subtotal", 0)
+            
+            producto = f"{categoria}"
+            if tipo:
+                producto += f" - {tipo}"
+            
+            lines.append(f"{qty} x {producto}")
+            lines.append(f"              ${subtotal:.2f}")
+        
+        lines.append("-" * 32)
+        lines.append(f"TOTAL: ${total:.2f}")
+        lines.append("=" * 32)
+        lines.append("  GRACIAS POR SU COMPRA!")
+        lines.append("=" * 32)
+        lines.append("")
+        lines.append("")
+        lines.append("")
+        lines.append("\x1d\x56\x00")  # Comando ESC/POS para cortar papel
+        
+        return "\n".join(lines)
+
+    def _generate_test_text(self):
+        """Genera texto de prueba"""
+        now = datetime.now()
+        
+        lines = []
+        lines.append("=" * 32)
+        lines.append("        PRUEBA")
+        lines.append("=" * 32)
+        lines.append(f"Fecha: {now.strftime('%d/%m/%Y %H:%M')}")
+        lines.append("")
+        lines.append("Si puedes leer esto,")
+        lines.append("la impresora funciona")
+        lines.append("correctamente!")
+        lines.append("")
+        lines.append("=" * 32)
+        lines.append("")
+        lines.append("")
+        lines.append("")
+        lines.append("\x1d\x56\x00")  # Cortar papel
+        
+        return "\n".join(lines)
+
+    def _generate_corte_text(self, total_vendido, tickets_pagados):
+        """Genera texto del corte"""
+        now = datetime.now()
+        
+        lines = []
+        lines.append("=" * 32)
+        lines.append("     CORTE DEL DIA")
+        lines.append("        MICHEL")
+        lines.append("=" * 32)
+        lines.append(f"Fecha: {now.strftime('%d/%m/%Y')}")
+        lines.append(f"Hora:  {now.strftime('%H:%M:%S')}")
+        lines.append("-" * 32)
+        lines.append(f"Tickets cobrados: {tickets_pagados}")
+        lines.append(f"TOTAL: ${total_vendido:.2f}")
+        lines.append("-" * 32)
+        lines.append("     FIN DEL CORTE")
+        lines.append("=" * 32)
+        lines.append("")
+        lines.append("")
+        lines.append("")
+        lines.append("\x1d\x56\x00")  # Cortar papel
+        
+        return "\n".join(lines)
+
     def print_ticket(self, items, total, ticket_num=None):
         """Imprime un ticket de venta"""
         if not self.printer:
             return False
 
         try:
-            p = self.printer
-            now = datetime.now()
+            if self.printer_type == "windows":
+                text = self._generate_ticket_text(items, total, ticket_num)
+                return self._print_windows_raw(text)
+            else:
+                # Método ESC/POS para USB y Red
+                p = self.printer
+                now = datetime.now()
 
-            p.set(align='center')
-            p.text("================================\n")
-            p.set(align='center', text_type='B', width=2, height=2)
-            p.text("MICHEL\n")
-            p.set(align='center', text_type='normal', width=1, height=1)
-            p.text("Gorditas y Antojitos\n")
-            p.text("================================\n")
+                p.set(align='center')
+                p.text("=" * 32 + "\n")
+                p.set(align='center', text_type='B', width=2, height=2)
+                p.text("MICHEL\n")
+                p.set(align='center', text_type='normal', width=1, height=1)
+                p.text("Gorditas y Antojitos\n")
+                p.text("=" * 32 + "\n")
 
-            p.text(f"Fecha: {now.strftime('%d/%m/%Y')}\n")
-            p.text(f"Hora:  {now.strftime('%H:%M:%S')}\n")
+                p.text(f"Fecha: {now.strftime('%d/%m/%Y')}\n")
+                p.text(f"Hora:  {now.strftime('%H:%M:%S')}\n")
 
-            if ticket_num:
-                p.text(f"Ticket: #{ticket_num}\n")
+                if ticket_num:
+                    p.text(f"Ticket: #{ticket_num}\n")
 
-            p.text("--------------------------------\n")
-
-            p.set(align='left')
-
-            for item in items:
-                qty = item.get("qty", 1)
-                categoria = item.get("categoria", "")
-                tipo = item.get("tipo", "")
-                subtotal = item.get("subtotal", 0)
-
-                producto = f"{categoria}"
-                if tipo:
-                    producto += f" - {tipo}"
-
-                p.text(f"{qty} x {producto}\n")
-                p.set(align='right')
-                p.text(f"${subtotal:.2f}\n")
+                p.text("-" * 32 + "\n")
                 p.set(align='left')
 
-            p.text("--------------------------------\n")
+                for item in items:
+                    qty = item.get("qty", 1)
+                    categoria = item.get("categoria", "")
+                    tipo = item.get("tipo", "")
+                    subtotal = item.get("subtotal", 0)
 
-            p.set(align='right', text_type='B', width=2, height=2)
-            p.text(f"TOTAL: ${total:.2f}\n")
+                    producto = f"{categoria}"
+                    if tipo:
+                        producto += f" - {tipo}"
 
-            p.set(align='center', text_type='normal', width=1, height=1)
-            p.text("================================\n")
-            p.text("GRACIAS POR SU COMPRA!\n")
-            p.text("================================\n")
+                    p.text(f"{qty} x {producto}\n")
+                    p.set(align='right')
+                    p.text(f"${subtotal:.2f}\n")
+                    p.set(align='left')
 
-            p.text("\n\n\n")
-            p.cut()
+                p.text("-" * 32 + "\n")
+                p.set(align='right', text_type='B', width=2, height=2)
+                p.text(f"TOTAL: ${total:.2f}\n")
 
-            return True
+                p.set(align='center', text_type='normal', width=1, height=1)
+                p.text("=" * 32 + "\n")
+                p.text("GRACIAS POR SU COMPRA!\n")
+                p.text("=" * 32 + "\n")
+                p.text("\n\n\n")
+                p.cut()
 
-        except:
+                return True
+
+        except Exception as e:
+            print(f"Error: {e}")
             return False
 
     def print_test(self):
@@ -285,28 +418,33 @@ class PrinterManager:
             return False
 
         try:
-            p = self.printer
-            now = datetime.now()
+            if self.printer_type == "windows":
+                text = self._generate_test_text()
+                return self._print_windows_raw(text)
+            else:
+                p = self.printer
+                now = datetime.now()
 
-            p.set(align='center')
-            p.text("================================\n")
-            p.set(align='center', text_type='B', width=2, height=2)
-            p.text("PRUEBA\n")
-            p.set(align='center', text_type='normal', width=1, height=1)
-            p.text("================================\n")
-            p.text(f"Fecha: {now.strftime('%d/%m/%Y %H:%M')}\n")
-            p.text("\n")
-            p.text("Si puedes leer esto,\n")
-            p.text("la impresora funciona\n")
-            p.text("correctamente!\n")
-            p.text("\n")
-            p.text("================================\n")
-            p.text("\n\n\n")
-            p.cut()
+                p.set(align='center')
+                p.text("=" * 32 + "\n")
+                p.set(align='center', text_type='B', width=2, height=2)
+                p.text("PRUEBA\n")
+                p.set(align='center', text_type='normal', width=1, height=1)
+                p.text("=" * 32 + "\n")
+                p.text(f"Fecha: {now.strftime('%d/%m/%Y %H:%M')}\n")
+                p.text("\n")
+                p.text("Si puedes leer esto,\n")
+                p.text("la impresora funciona\n")
+                p.text("correctamente!\n")
+                p.text("\n")
+                p.text("=" * 32 + "\n")
+                p.text("\n\n\n")
+                p.cut()
 
-            return True
+                return True
 
-        except:
+        except Exception as e:
+            print(f"Error: {e}")
             return False
 
     def print_corte(self, total_vendido, tickets_pagados):
@@ -315,36 +453,40 @@ class PrinterManager:
             return False
 
         try:
-            p = self.printer
-            now = datetime.now()
+            if self.printer_type == "windows":
+                text = self._generate_corte_text(total_vendido, tickets_pagados)
+                return self._print_windows_raw(text)
+            else:
+                p = self.printer
+                now = datetime.now()
 
-            p.set(align='center')
-            p.text("================================\n")
-            p.set(align='center', text_type='B', width=2, height=2)
-            p.text("CORTE DEL DIA\n")
-            p.set(align='center', text_type='normal', width=1, height=1)
-            p.text("MICHEL\n")
-            p.text("================================\n")
+                p.set(align='center')
+                p.text("=" * 32 + "\n")
+                p.set(align='center', text_type='B', width=2, height=2)
+                p.text("CORTE DEL DIA\n")
+                p.set(align='center', text_type='normal', width=1, height=1)
+                p.text("MICHEL\n")
+                p.text("=" * 32 + "\n")
 
-            p.text(f"Fecha: {now.strftime('%d/%m/%Y')}\n")
-            p.text(f"Hora:  {now.strftime('%H:%M:%S')}\n")
+                p.text(f"Fecha: {now.strftime('%d/%m/%Y')}\n")
+                p.text(f"Hora:  {now.strftime('%H:%M:%S')}\n")
+                p.text("-" * 32 + "\n")
 
-            p.text("--------------------------------\n")
+                p.set(align='left')
+                p.text(f"Tickets cobrados: {tickets_pagados}\n")
 
-            p.set(align='left')
-            p.text(f"Tickets cobrados: {tickets_pagados}\n")
+                p.set(align='right', text_type='B', width=2, height=1)
+                p.text(f"TOTAL: ${total_vendido:.2f}\n")
 
-            p.set(align='right', text_type='B', width=2, height=1)
-            p.text(f"TOTAL: ${total_vendido:.2f}\n")
+                p.set(align='center', text_type='normal', width=1, height=1)
+                p.text("-" * 32 + "\n")
+                p.text("FIN DEL CORTE\n")
+                p.text("=" * 32 + "\n")
+                p.text("\n\n\n")
+                p.cut()
 
-            p.set(align='center', text_type='normal', width=1, height=1)
-            p.text("--------------------------------\n")
-            p.text("FIN DEL CORTE\n")
-            p.text("================================\n")
-            p.text("\n\n\n")
-            p.cut()
+                return True
 
-            return True
-
-        except:
+        except Exception as e:
+            print(f"Error: {e}")
             return False
